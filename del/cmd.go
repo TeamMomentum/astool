@@ -150,8 +150,7 @@ func _deleteRecord(c *as.Client, ns, sn, uri string) error {
 		return err
 	}
 
-	exist, err := c.Delete(nil, key)
-	println("これ何？", exist)
+	_, err := c.Delete(nil, key)
 
 	return err
 }
