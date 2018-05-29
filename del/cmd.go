@@ -98,7 +98,8 @@ func deleteRecord(c *as.Client, set, uri string) error {
 	if err != nil {
 		return err
 	}
-	return _deleteRecord(c, ns, sn, uri)
+	_, err = _deleteRecord(c, ns, sn, uri)
+	return err
 }
 
 func deleteRecords(c *as.Client, set, file string) error {
@@ -113,15 +114,20 @@ func deleteRecords(c *as.Client, set, file string) error {
 	}
 
 	numErr := 0
+	n := 0
 	s := bufio.NewScanner(f)
 	for s.Scan() {
 		uri := s.Text()
-		if err := _deleteRecord(c, ns, sn, uri); err != nil {
+		if exist, err := _deleteRecord(c, ns, sn, uri); err != nil {
 			numErr++
 			println(err.Error(), "url="+uri)
 			continue
+		} else if exist {
+			n++
 		}
 	}
+
+	println(n, "keys were deleted")
 
 	if numErr > 0 {
 		return fmt.Errorf("%d errors occure", numErr)
@@ -138,19 +144,17 @@ func splitNamespaceSet(src string) (string, string, error) {
 	return p[0], p[1], nil
 }
 
-func _deleteRecord(c *as.Client, ns, sn, uri string) error {
+func _deleteRecord(c *as.Client, ns, sn, uri string) (bool, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	uri = urls.FirstNormalizeURL(u)
 	key, err := as.NewKey(ns, sn, uri)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	_, err := c.Delete(nil, key)
-
-	return err
+	return c.Delete(nil, key)
 }
