@@ -4,8 +4,5 @@ GOVERSION=$(shell go version)
 
 BUILD_FLAG=-ldflags "-X 'main.version=$(HASH)' -X 'main.date=$(BUILDDATE)' -X 'main.gover=$(GOVERSION)'"
 
-install:
-	go install $(BUILD_FLAG)
-
-build_linux:
-	GOOS=linux GOARCH=amd64 go build $(BUILD_FLAG)
+build:
+	go build $(BUILD_FLAG)
