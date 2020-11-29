@@ -5,9 +5,10 @@ import (
 	"flag"
 	"os"
 
-	"github.com/TeamMomentum/astool/del"
-
 	"github.com/google/subcommands"
+
+	"github.com/TeamMomentum/astool/del"
+	"github.com/TeamMomentum/astool/get"
 )
 
 var (
@@ -20,12 +21,11 @@ func init() {
 	subcommands.Register(subcommands.FlagsCommand(), "")
 	subcommands.Register(subcommands.CommandsCommand(), "")
 	subcommands.Register(del.Cmd("del"), "")
+	subcommands.Register(get.Cmd("get"), "")
 }
 
 func main() {
-	var (
-		showVersion = flag.Bool("version", false, "show version")
-	)
+	showVersion := flag.Bool("version", false, "show version")
 
 	flag.Parse()
 	if *showVersion {
