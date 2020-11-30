@@ -3,6 +3,7 @@ package get
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -42,9 +43,10 @@ type command struct {
 	host *string
 	port *int
 
-	name   string
-	output io.Writer
-	logger *log.Logger
+	name    string
+	output  io.Writer
+	logger  *log.Logger
+	jsonenc *json.Encoder
 }
 
 func (c *command) outf(format string, v ...interface{}) {
@@ -66,6 +68,8 @@ func Cmd(name string, options ...Option) subcommands.Command {
 		output: os.Stdout,
 		logger: log.New(os.Stderr, "", 0),
 	}
+
+	cmd.jsonenc = json.NewEncoder(cmd.output)
 
 	for _, opt := range options {
 		opt.apply(cmd)
@@ -224,5 +228,14 @@ func printRecord(key string, rec *as.Record) {
 		log.Fatal("get cmd not initialized")
 	}
 
-	cmd.outf("key=%s, ttl=%d, gen=%d, bins=%#v\n", key, rec.Expiration, rec.Generation, rec.Bins)
+	data := map[string]interface{}{
+		"key":  key,
+		"ttl":  rec.Expiration,
+		"gen":  rec.Generation,
+		"bins": rec.Bins,
+	}
+
+	if err := cmd.jsonenc.Encode(&data); err != nil {
+		cmd.logf("could not print %s: %s", key, err)
+	}
 }
