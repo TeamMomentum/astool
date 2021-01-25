@@ -37,6 +37,13 @@ func WithLogger(logger *log.Logger) Option {
 	}
 }
 
+type output struct {
+	Key  string                 `json:"key"`
+	TTL  uint32                 `json:"ttl"`
+	Gen  uint32                 `json:"gen"`
+	Bins map[string]interface{} `json:"bins"`
+}
+
 type command struct {
 	set  *string
 	file *string
@@ -90,7 +97,7 @@ func (c *command) Synopsis() string {
 
 // Usage implements subcommands.Commander interface
 func (c *command) Usage() string {
-	return `Usage: get -set NAMESPACE.SET [-file FILE | KEY1,KEY2,...]`
+	return "Usage: get -set NAMESPACE.SET [-file FILE | KEY1,KEY2,...]\n"
 }
 
 // SetFlags implements subcommands.Commander interface
@@ -106,6 +113,7 @@ func (c *command) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) 
 	args := f.Args()
 
 	if len(*c.set) == 0 || len(*c.host) == 0 || *c.port == 0 {
+		f.Usage()
 		return subcommands.ExitUsageError
 	}
 
@@ -117,6 +125,7 @@ func (c *command) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) 
 
 	switch {
 	default:
+		f.Usage()
 		return subcommands.ExitUsageError
 	case len(*c.file) > 0:
 		if err := getRecordsFromFile(client, *c.set, *c.file); err != nil {
@@ -228,14 +237,35 @@ func printRecord(key string, rec *as.Record) {
 		log.Fatal("get cmd not initialized")
 	}
 
-	data := map[string]interface{}{
-		"key":  key,
-		"ttl":  rec.Expiration,
-		"gen":  rec.Generation,
-		"bins": rec.Bins,
+	bins := map[string]interface{}{}
+
+	for k, v := range rec.Bins {
+		bins[k] = toJSON(v)
+	}
+
+	data := output{
+		Key:  key,
+		TTL:  rec.Expiration,
+		Gen:  rec.Generation,
+		Bins: bins,
 	}
 
 	if err := cmd.jsonenc.Encode(&data); err != nil {
 		cmd.logf("could not print %s: %s", key, err)
 	}
+}
+
+func toJSON(v interface{}) interface{} {
+	vv, ok := v.(map[interface{}]interface{})
+	if !ok {
+		return v
+	}
+
+	m := map[string]interface{}{}
+
+	for k, vvv := range vv {
+		m[fmt.Sprintf("%s", k)] = toJSON(vvv)
+	}
+
+	return m
 }
