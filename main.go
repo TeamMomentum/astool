@@ -7,8 +7,9 @@ import (
 
 	"github.com/google/subcommands"
 
-	"github.com/TeamMomentum/astool/del"
+	_ "github.com/TeamMomentum/astool/del"
 	"github.com/TeamMomentum/astool/get"
+	"github.com/TeamMomentum/astool/scan"
 )
 
 var (
@@ -20,8 +21,8 @@ func init() {
 	subcommands.Register(subcommands.HelpCommand(), "")
 	subcommands.Register(subcommands.FlagsCommand(), "")
 	subcommands.Register(subcommands.CommandsCommand(), "")
-	subcommands.Register(del.Cmd("del"), "")
 	subcommands.Register(get.Cmd("get"), "")
+	subcommands.Register(scan.Cmd(), "")
 }
 
 func main() {

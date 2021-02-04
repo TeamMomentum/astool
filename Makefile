@@ -6,3 +6,6 @@ BUILD_FLAG=-ldflags "-X 'main.version=$(HASH)' -X 'main.date=$(BUILDDATE)' -X 'm
 
 build:
 	go build $(BUILD_FLAG)
+
+linux:
+	env GOOS=linux GOARCH=amd64 $(MAKE) -e build

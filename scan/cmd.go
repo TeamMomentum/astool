@@ -1,12 +1,11 @@
-package get
+package scan
 
 import (
-	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/google/subcommands"
 )
 
+// cmd is used for singleton instance
 var cmd *command
 
 type Option interface {
@@ -46,18 +46,11 @@ type output struct {
 
 type command struct {
 	set  *string
-	file *string
 	host *string
 	port *int
 
-	name    string
-	output  io.Writer
 	logger  *log.Logger
 	jsonenc *json.Encoder
-}
-
-func (c *command) outf(format string, v ...interface{}) {
-	fmt.Fprintf(c.output, format, v...)
 }
 
 func (c *command) logf(format string, v ...interface{}) {
@@ -65,18 +58,11 @@ func (c *command) logf(format string, v ...interface{}) {
 }
 
 // Cmd initialize get command
-func Cmd(name string, options ...Option) subcommands.Command {
-	if len(name) == 0 {
-		panic("please set command name")
-	}
-
+func Cmd(options ...Option) subcommands.Command {
 	cmd = &command{
-		name:   name,
-		output: os.Stdout,
-		logger: log.New(os.Stderr, "", 0),
+		logger:  log.New(os.Stderr, "", 0),
+		jsonenc: json.NewEncoder(os.Stdout),
 	}
-
-	cmd.jsonenc = json.NewEncoder(cmd.output)
 
 	for _, opt := range options {
 		opt.apply(cmd)
@@ -87,31 +73,28 @@ func Cmd(name string, options ...Option) subcommands.Command {
 
 // Name implements subcommands.Commander interface
 func (c *command) Name() string {
-	return c.name
+	return "scan"
 }
 
 // Synopsis implements subcommands.Commander interface
 func (c *command) Synopsis() string {
-	return "get Aerospike record"
+	return "scan Aerospike record"
 }
 
 // Usage implements subcommands.Commander interface
 func (c *command) Usage() string {
-	return "Usage: get -set NAMESPACE.SET [-file FILE | KEY1,KEY2,...]\n"
+	return "Usage: scan -set NAMESPACE.SET\n"
 }
 
 // SetFlags implements subcommands.Commander interface
 func (c *command) SetFlags(f *flag.FlagSet) {
 	c.set = f.String("set", "", "Aerospike NAMESPACE.SET")
-	c.file = f.String("file", "", "read keys of Records from file")
 	c.host = f.String("host", "localhost", "Aerospike hostname")
 	c.port = f.Int("port", 3000, "Aerospike port number")
 }
 
 // Execute implements subcommands.Commander interface
 func (c *command) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-	args := f.Args()
-
 	if len(*c.set) == 0 || len(*c.host) == 0 || *c.port == 0 {
 		f.Usage()
 		return subcommands.ExitUsageError
@@ -123,27 +106,25 @@ func (c *command) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) 
 		return subcommands.ExitFailure
 	}
 
-	switch {
-	default:
-		f.Usage()
-		return subcommands.ExitUsageError
-	case len(*c.file) > 0:
-		if err := getRecordsFromFile(client, *c.set, *c.file); err != nil {
-			c.logf("could not get aerospike records: %s", err)
-			return subcommands.ExitFailure
-		}
-	case len(args) > 0:
-		if err := getRecords(client, *c.set, args...); err != nil {
-			c.logf("could not get aerospike records: %s", err)
-			return subcommands.ExitFailure
-		}
+	if err := scanRecords(client, *c.set); err != nil {
+		c.logf("could not get aerospike records: %s", err)
+		return subcommands.ExitFailure
 	}
 
 	return subcommands.ExitSuccess
 }
 
-func getRecords(c *as.Client, set string, keys ...string) error {
+func scanRecords(c *as.Client, set string) error {
 	ns, sn, err := splitNamespaceSet(set)
+	if err != nil {
+		return err
+	}
+
+	p := as.NewScanPolicy()
+	p.Priority = as.LOW
+	p.MaxConcurrentNodes = 1
+
+	scanner, err := c.ScanAll(p, ns, sn)
 	if err != nil {
 		return err
 	}
@@ -153,16 +134,15 @@ func getRecords(c *as.Client, set string, keys ...string) error {
 		fc = 0
 	)
 
-	for _, key := range keys {
-		rec, err := getRecord(c, ns, sn, key)
-		if err != nil {
+	for res := range scanner.Results() {
+		if res.Err != nil {
 			fc++
-			cmd.logf("fail to get %s: %s", key, err)
+			cmd.logf("fail to scan: %s", res.Err)
 			continue
 		}
 
 		sc++
-		printRecord(key, rec)
+		printRecord(res.Record)
 	}
 
 	cmd.logf("success=%d failure=%d", sc, fc)
@@ -174,46 +154,6 @@ func getRecords(c *as.Client, set string, keys ...string) error {
 	return nil
 }
 
-func getRecordsFromFile(c *as.Client, set, file string) error {
-	ns, sn, err := splitNamespaceSet(set)
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Open(file)
-	if err != nil {
-		return err
-	}
-
-	var (
-		sc = 0
-		fc = 0
-		s  = bufio.NewScanner(f)
-	)
-
-	for s.Scan() {
-		key := s.Text()
-
-		rec, err := getRecord(c, ns, sn, key)
-		if err != nil {
-			fc++
-			cmd.logf("fail to get %s: %s", key, err)
-			continue
-		}
-
-		sc++
-		printRecord(key, rec)
-	}
-
-	cmd.logf("success=%d failure=%d", sc, fc)
-
-	if fc > 0 {
-		return fmt.Errorf("there are %d errors", fc)
-	}
-
-	return s.Err()
-}
-
 func splitNamespaceSet(src string) (string, string, error) {
 	p := strings.Split(src, ".")
 	if len(p) != 2 {
@@ -223,16 +163,7 @@ func splitNamespaceSet(src string) (string, string, error) {
 	return p[0], p[1], nil
 }
 
-func getRecord(c *as.Client, ns, sn, ksrc string) (*as.Record, error) {
-	key, err := as.NewKey(ns, sn, ksrc)
-	if err != nil {
-		return nil, err
-	}
-
-	return c.Get(nil, key)
-}
-
-func printRecord(key string, rec *as.Record) {
+func printRecord(rec *as.Record) {
 	if cmd == nil {
 		log.Fatal("get cmd not initialized")
 	}
@@ -241,6 +172,14 @@ func printRecord(key string, rec *as.Record) {
 
 	for k, v := range rec.Bins {
 		bins[k] = toJSON(v)
+	}
+
+	key := ""
+
+	if v := rec.Key.Value(); v != nil {
+		key = rec.Key.Value().String()
+	} else {
+		key = "digest:" + base64.StdEncoding.EncodeToString(rec.Key.Digest())
 	}
 
 	data := output{
